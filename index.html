@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Low-Score Predictor — Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: #0f172a;
+    color: #e2e8f0;
+    min-height: 100vh;
+  }
+  .header {
+    background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+    padding: 20px 40px;
+    border-bottom: 2px solid #334155;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .header h1 { font-size: 28px; color: #38bdf8; }
+  .header p { color: #94a3b8; margin-top: 5px; font-size: 14px; }
+  .refresh-btn {
+    background: #1e293b; color: #38bdf8; border: 1px solid #334155;
+    border-radius: 8px; padding: 10px 16px; font-size: 14px; cursor: pointer;
+    font-family: inherit;
+  }
+  .refresh-btn:hover { background: #334155; }
+  .refresh-btn:focus-visible { outline: 2px solid #38bdf8; outline-offset: 2px; }
+  .container { padding: 30px 40px; max-width: 1400px; margin: 0 auto; }
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 20px; margin-bottom: 30px;
+  }
+  .stat-card {
+    background: #1e293b; border-radius: 12px; padding: 20px; border: 1px solid #334155;
+  }
+  .stat-card.primary { border-color: #38bdf8; }
+  .stat-card h3 {
+    font-size: 13px; color: #94a3b8; text-transform: uppercase;
+    letter-spacing: 1px; margin-bottom: 10px;
+  }
+  .stat-card .value { font-size: 32px; font-weight: 700; }
+  .stat-card .value.positive { color: #4ade80; }
+  .stat-card .value.negative { color: #f87171; }
+  .stat-card .value.neutral { color: #38bdf8; }
+  .stat-card .sub { font-size: 12px; color: #64748b; margin-top: 6px; }
+  .table-container {
+    background: #1e293b; border-radius: 12px; border: 1px solid #334155;
+    overflow-x: auto; margin-bottom: 30px;
+  }
+  .table-header { padding: 20px; border-bottom: 1px solid #334155; }
+  .table-header h2 { font-size: 18px; color: #e2e8f0; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #334155; white-space: nowrap; }
+  th {
+    background: #0f172a; color: #94a3b8; font-weight: 600; font-size: 12px;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  tr:hover { background: #334155; }
+  td { font-size: 14px; }
+  td.match { white-space: normal; min-width: 200px; }
+  .win { color: #4ade80; font-weight: 600; }
+  .loss { color: #f87171; font-weight: 600; }
+  .pending { color: #fbbf24; font-weight: 600; }
+  .muted { color: #64748b; }
+  .loading { text-align: center; padding: 60px; color: #94a3b8; }
+  .error {
+    text-align: center; padding: 40px; color: #f87171;
+  }
+  .error .hint { display:block; margin-top:10px; color:#94a3b8; font-size:13px; }
+  .footer { text-align: center; margin-top: 20px; color: #64748b; font-size: 12px; }
+  @media (max-width: 640px) {
+    .header, .container { padding-left: 16px; padding-right: 16px; }
+    th, td { padding: 8px 10px; font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <h1>⚽ Low-Score Predictor</h1>
+      <p>Under 1.5 &amp; «Όχι γκολ στα πρώτα 15′» • Auto-refresh κάθε 6 ώρες</p>
+    </div>
+    <button class="refresh-btn" id="refresh-btn" onclick="loadData()">↻ Ανανέωση</button>
+  </div>
+
+  <div class="container">
+    <div class="stats-grid">
+      <div class="stat-card">
+        <h3>Σύνολο Picks</h3>
+        <div class="value neutral" id="total-picks">-</div>
+        <div class="sub" id="settled-sub">&nbsp;</div>
+      </div>
+      <div class="stat-card primary">
+        <h3>Όχι γκολ στα πρώτα 15′</h3>
+        <div class="value neutral" id="noearly-rate">-</div>
+        <div class="sub" id="noearly-sub">&nbsp;</div>
+      </div>
+      <div class="stat-card">
+        <h3>Under 1.5 (0-1 γκολ)</h3>
+        <div class="value neutral" id="u15-rate">-</div>
+        <div class="sub" id="u15-sub">&nbsp;</div>
+      </div>
+      <div class="stat-card">
+        <h3>Εκκρεμή</h3>
+        <div class="value neutral" id="pending-count">-</div>
+        <div class="sub">αναμονή αποτελέσματος</div>
+      </div>
+    </div>
+
+    <div class="table-container">
+      <div class="table-header"><h2>📊 Μηνιαία Σύνοψη</h2></div>
+      <table>
+        <thead>
+          <tr>
+            <th>Έτος</th>
+            <th>Μήνας</th>
+            <th>Picks</th>
+            <th>U1.5 ✓</th>
+            <th>U1.5 %</th>
+            <th>Όχι πρ. γκολ ✓</th>
+            <th>Όχι πρ. γκολ %</th>
+          </tr>
+        </thead>
+        <tbody id="monthly-tbody">
+          <tr><td colspan="7" class="loading">Φόρτωση…</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="table-container">
+      <div class="table-header"><h2>📝 Όλα τα Picks</h2></div>
+      <table>
+        <thead>
+          <tr>
+            <th>Ημ/νία</th>
+            <th>Αγώνας</th>
+            <th>Score</th>
+            <th>P(γκολ 15′)</th>
+            <th>Αποτέλεσμα</th>
+            <th>U1.5</th>
+            <th>Όχι πρ. γκολ</th>
+          </tr>
+        </thead>
+        <tbody id="picks-tbody">
+          <tr><td colspan="7" class="loading">Φόρτωση…</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="footer" id="footer">SportAgnostik Low-Score Predictor v1.1 · Δεν αποτελεί συμβουλή στοιχήματος.</p>
+  </div>
+
+<script>
+  // Public anon key (read-only, safe to embed). Full access keys must NEVER live here.
+  const sb = supabase.createClient(
+    'https://gxvvvlxcvzkphvsmgjhl.supabase.co',
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd4dnZ2bHhjdnprcGh2c21namhsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUzNDEwNDYsImV4cCI6MjEwMDkxNzA0Nn0.Mkt-RXoDQdtvMgwX9WwgyQcE63DbFJrh22G1cKkjGdA'
+  );
+
+  const monthNames = ['','Ιαν','Φεβ','Μαρ','Απρ','Μάι','Ιουν','Ιουλ','Αυγ','Σεπ','Οκτ','Νοε','Δεκ'];
+
+  // --- Classification (computed from raw actuals, so 0-0 counts correctly) ---
+  const isSettled = p => p.actual_total_goals !== null && p.actual_total_goals !== undefined;
+
+  function u15Result(p) {            // 'win' | 'loss' | null (pending)
+    if (!isSettled(p)) return null;
+    return p.actual_total_goals <= 1 ? 'win' : 'loss';
+  }
+
+  function noEarlyResult(p) {        // primary objective: no goal in first 15'
+    if (!isSettled(p)) return null;              // result unknown yet
+    if (p.actual_total_goals === 0) return 'win'; // 0-0 → zero goals → success
+    const fm = p.actual_first_goal_minute;
+    if (fm === null || fm === undefined) return null; // goal happened but minute unknown → can't judge
+    return fm > 15 ? 'win' : 'loss';
+  }
+
+  async function loadData() {
+    const btn = document.getElementById('refresh-btn');
+    btn.disabled = true; btn.textContent = '… φόρτωση';
+    try {
+      const { data, error } = await sb
+        .from('picks')
+        .select('*')
+        .order('date', { ascending: false });
+      if (error) throw error;
+      const rows = data || [];
+      renderStats(rows);
+      renderMonthly(rows);
+      renderPicks(rows);
+      document.getElementById('footer').textContent =
+        `SportAgnostik Low-Score Predictor v1.1 · Τελ. ενημέρωση: ${new Date().toLocaleString('el-GR')} · Δεν αποτελεί συμβουλή στοιχήματος.`;
+    } catch (err) {
+      const isPerm = /permission|denied|rls|policy|not.*allow|401|403/i.test(err.message || '');
+      const hint = isPerm
+        ? '<span class="hint">Ο πίνακας δεν είναι αναγνώσιμος από το anon key — τρέξε το SQL policy στο Supabase (SELECT για anon στο picks).</span>'
+        : '<span class="hint">Έλεγξε τη σύνδεση με το Supabase.</span>';
+      const msg = `<tr><td colspan="7" class="error">Σφάλμα: ${err.message}${hint}</td></tr>`;
+      document.getElementById('monthly-tbody').innerHTML = msg;
+      document.getElementById('picks-tbody').innerHTML = msg;
+    } finally {
+      btn.disabled = false; btn.textContent = '↻ Ανανέωση';
+    }
+  }
+
+  function pct(w, d) { return d > 0 ? ((w / d) * 100).toFixed(1) + '%' : '—'; }
+  function rateClass(w, d) {
+    if (d === 0) return 'neutral';
+    const r = w / d;
+    return r >= 0.6 ? 'positive' : r >= 0.4 ? 'neutral' : 'negative';
+  }
+
+  function renderStats(rows) {
+    const total = rows.length;
+    const pending = rows.filter(p => !isSettled(p)).length;
+
+    const u15 = rows.map(u15Result).filter(r => r !== null);
+    const u15w = u15.filter(r => r === 'win').length;
+
+    const ne = rows.map(noEarlyResult).filter(r => r !== null);
+    const new_ = ne.filter(r => r === 'win').length;
+
+    setCard('total-picks', total, 'neutral');
+    document.getElementById('settled-sub').textContent = `${total - pending} ελεγμένα`;
+
+    setCard('noearly-rate', pct(new_, ne.length), rateClass(new_, ne.length));
+    document.getElementById('noearly-sub').textContent = `${new_}/${ne.length} επιτυχίες`;
+
+    setCard('u15-rate', pct(u15w, u15.length), rateClass(u15w, u15.length));
+    document.getElementById('u15-sub').textContent = `${u15w}/${u15.length} επιτυχίες`;
+
+    setCard('pending-count', pending, 'neutral');
+  }
+
+  function setCard(id, val, cls) {
+    const el = document.getElementById(id);
+    el.textContent = val;
+    el.className = 'value ' + cls;
+  }
+
+  function renderMonthly(rows) {
+    const groups = {};
+    rows.forEach(p => {
+      if (!p.date) return;
+      const [y, m] = p.date.split('-');
+      const key = `${y}-${m}`;
+      if (!groups[key]) groups[key] = { year: +y, month: +m, picks: 0, u15w: 0, u15d: 0, new_: 0, ned: 0 };
+      const g = groups[key];
+      g.picks++;
+      const u = u15Result(p); if (u !== null) { g.u15d++; if (u === 'win') g.u15w++; }
+      const n = noEarlyResult(p); if (n !== null) { g.ned++; if (n === 'win') g.new_++; }
+    });
+
+    const keys = Object.keys(groups).sort().reverse(); // auto: newest year-month first
+    let html = '';
+    keys.forEach(k => {
+      const g = groups[k];
+      html += `<tr>
+        <td>${g.year}</td>
+        <td>${monthNames[g.month]}</td>
+        <td>${g.picks}</td>
+        <td class="win">${g.u15w}</td>
+        <td>${pct(g.u15w, g.u15d)}</td>
+        <td class="win">${g.new_}</td>
+        <td>${pct(g.new_, g.ned)}</td>
+      </tr>`;
+    });
+    document.getElementById('monthly-tbody').innerHTML =
+      html || '<tr><td colspan="7" style="text-align:center;padding:40px;">Δεν υπάρχουν δεδομένα ακόμη</td></tr>';
+  }
+
+  function markCell(res) {
+    if (res === 'win') return '<td class="win">✓</td>';
+    if (res === 'loss') return '<td class="loss">✗</td>';
+    return '<td class="pending">—</td>';
+  }
+
+  function resultText(p) {
+    if (!isSettled(p)) return '<span class="pending">εκκρεμεί</span>';
+    const g = p.actual_total_goals;
+    const fm = p.actual_first_goal_minute;
+    if (g === 0) return '0-0 · χωρίς γκολ';
+    const minTxt = (fm === null || fm === undefined) ? '1ο λεπτό ;' : `1ο @ ${fm}′`;
+    return `${g} γκολ · ${minTxt}`;
+  }
+
+  function renderPicks(rows) {
+    let html = '';
+    rows.forEach(p => {
+      const score = p.predicted_low_score ?? '-';
+      const early = (p.predicted_early_goal_prob ?? null) !== null ? p.predicted_early_goal_prob + '%' : '-';
+      html += `<tr>
+        <td>${p.date || '-'}</td>
+        <td class="match">${p.match_name || ((p.home_team||'?') + ' vs ' + (p.away_team||'?'))}</td>
+        <td>${score}${score !== '-' ? '/100' : ''}</td>
+        <td>${early}</td>
+        <td>${resultText(p)}</td>
+        ${markCell(u15Result(p))}
+        ${markCell(noEarlyResult(p))}
+      </tr>`;
+    });
+    document.getElementById('picks-tbody').innerHTML =
+      html || '<tr><td colspan="7" style="text-align:center;padding:40px;">Δεν υπάρχουν δεδομένα ακόμη</td></tr>';
+  }
+
+  loadData();
+  setInterval(loadData, 21600000); // 6h
+</script>
+</body>
+</html>

@@ -75,6 +75,14 @@
     text-align: center; padding: 40px; color: #f87171;
   }
   .error .hint { display:block; margin-top:10px; color:#94a3b8; font-size:13px; }
+  .day-sep td {
+    background:#0b1220; color:#7dd3fc; font-weight:700; letter-spacing:.4px;
+    border-top:2px solid #38bdf8; padding:8px 12px;
+  }
+  .day-total td {
+    text-align:right; color:#94a3b8; font-size:13px;
+    background:#0b1220; border-bottom:2px solid #334155; padding:8px 12px;
+  }
   .footer { text-align: center; margin-top: 20px; color: #64748b; font-size: 12px; }
   @media (max-width: 640px) {
     .header, .container { padding-left: 16px; padding-right: 16px; }
@@ -86,7 +94,7 @@
   <div class="header">
     <div>
       <h1>⚽ Low-Score Predictor</h1>
-      <p><b>W</b> = πρώτο γκολ στο 15:00+ (ή 0-0) · <b>L</b> = γκολ στο πρώτο 15λεπτο • Auto-refresh κάθε 6 ώρες</p>
+      <p><b>W/L</b>: πόνταρε <b>Under 0.5</b> γκολ στο 0:00–14:59 · <b>W</b> = κανένα γκολ στο πρώτο 15′ · <b>L</b> = έστω 1 γκολ στο πρώτο 15′ • Auto-refresh κάθε 6 ώρες</p>
     </div>
     <button class="refresh-btn" id="refresh-btn" onclick="loadData()">↻ Ανανέωση</button>
   </div>
@@ -303,9 +311,35 @@
     return '<td class="pending">—</td>';
   }
 
+  function dayTotalRow(date, wins, losses) {
+    const total = wins + losses;
+    const pct = total ? Math.round((wins / total) * 100) : null;
+    const pctTxt = pct === null ? '' : ` · ${pct}%`;
+    return `<tr class="day-total"><td colspan="8">
+      Σύνολο ${date}: <span class="win">${wins}W</span> – <span class="loss">${losses}L</span>${pctTxt}
+    </td></tr>`;
+  }
+
   function renderPicks(rows) {
+    if (!rows.length) {
+      document.getElementById('picks-tbody').innerHTML =
+        '<tr><td colspan="8" style="text-align:center;padding:40px;">Δεν υπάρχουν δεδομένα ακόμη</td></tr>';
+      return;
+    }
     let html = '';
+    let curDate = null, dW = 0, dL = 0;
     rows.forEach(p => {
+      // rows arrive ordered by date desc; when the day changes, close the
+      // previous day's W/L tally, then open the new day with a divider line.
+      if (p.date !== curDate) {
+        if (curDate !== null) html += dayTotalRow(curDate, dW, dL);
+        curDate = p.date;
+        dW = 0; dL = 0;
+        html += `<tr class="day-sep"><td colspan="8">📅 ${p.date || '-'}</td></tr>`;
+      }
+      const wl = noEarlyResult(p);
+      if (wl === 'win') dW++; else if (wl === 'loss') dL++;
+
       const score = p.predicted_low_score ?? '-';
       const early = (p.predicted_early_goal_prob ?? null) !== null ? p.predicted_early_goal_prob + '%' : '-';
       html += `<tr>
@@ -319,8 +353,8 @@
         ${markWL(noEarlyResult(p))}
       </tr>`;
     });
-    document.getElementById('picks-tbody').innerHTML =
-      html || '<tr><td colspan="8" style="text-align:center;padding:40px;">Δεν υπάρχουν δεδομένα ακόμη</td></tr>';
+    if (curDate !== null) html += dayTotalRow(curDate, dW, dL);   // close last day
+    document.getElementById('picks-tbody').innerHTML = html;
   }
 
   loadData();

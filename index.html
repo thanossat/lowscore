@@ -86,7 +86,7 @@
   <div class="header">
     <div>
       <h1>⚽ Low-Score Predictor</h1>
-      <p>Under 1.5 &amp; «Όχι γκολ στα πρώτα 15′» • Auto-refresh κάθε 6 ώρες</p>
+      <p><b>W</b> = πρώτο γκολ στο 15:00+ (ή 0-0) · <b>L</b> = γκολ στο πρώτο 15λεπτο • Auto-refresh κάθε 6 ώρες</p>
     </div>
     <button class="refresh-btn" id="refresh-btn" onclick="loadData()">↻ Ανανέωση</button>
   </div>
@@ -99,7 +99,7 @@
         <div class="sub" id="settled-sub">&nbsp;</div>
       </div>
       <div class="stat-card primary">
-        <h3>Όχι γκολ στα πρώτα 15′</h3>
+        <h3>W/L · Χωρίς γκολ 0-15′</h3>
         <div class="value neutral" id="noearly-rate">-</div>
         <div class="sub" id="noearly-sub">&nbsp;</div>
       </div>
@@ -125,8 +125,8 @@
             <th>Picks</th>
             <th>U1.5 ✓</th>
             <th>U1.5 %</th>
-            <th>Όχι πρ. γκολ ✓</th>
-            <th>Όχι πρ. γκολ %</th>
+            <th>W</th>
+            <th>W/L %</th>
           </tr>
         </thead>
         <tbody id="monthly-tbody">
@@ -143,14 +143,15 @@
             <th>Ημ/νία</th>
             <th>Αγώνας</th>
             <th>Score</th>
-            <th>P(γκολ 15′)</th>
+            <th>Πιθ. γκολ 0-15′</th>
             <th>Αποτέλεσμα</th>
             <th>U1.5</th>
-            <th>Όχι πρ. γκολ</th>
+            <th>Χρόνος πρ. γκολ</th>
+            <th>W/L</th>
           </tr>
         </thead>
         <tbody id="picks-tbody">
-          <tr><td colspan="7" class="loading">Φόρτωση…</td></tr>
+          <tr><td colspan="8" class="loading">Φόρτωση…</td></tr>
         </tbody>
       </table>
     </div>
@@ -203,9 +204,9 @@
       const hint = isPerm
         ? '<span class="hint">Ο πίνακας δεν είναι αναγνώσιμος από το anon key — τρέξε το SQL policy στο Supabase (SELECT για anon στο picks).</span>'
         : '<span class="hint">Έλεγξε τη σύνδεση με το Supabase.</span>';
-      const msg = `<tr><td colspan="7" class="error">Σφάλμα: ${err.message}${hint}</td></tr>`;
-      document.getElementById('monthly-tbody').innerHTML = msg;
-      document.getElementById('picks-tbody').innerHTML = msg;
+      const cell = c => `<tr><td colspan="${c}" class="error">Σφάλμα: ${err.message}${hint}</td></tr>`;
+      document.getElementById('monthly-tbody').innerHTML = cell(7);
+      document.getElementById('picks-tbody').innerHTML = cell(8);
     } finally {
       btn.disabled = false; btn.textContent = '↻ Ανανέωση';
     }
@@ -286,10 +287,20 @@
   function resultText(p) {
     if (!isSettled(p)) return '<span class="pending">εκκρεμεί</span>';
     const g = p.actual_total_goals;
+    return g === 0 ? '0-0' : `${g} γκολ`;
+  }
+
+  function minuteText(p) {          // dedicated column: minute of first goal
+    if (!isSettled(p)) return '<span class="pending">—</span>';
+    if (p.actual_total_goals === 0) return '<span class="muted">0-0</span>';
     const fm = p.actual_first_goal_minute;
-    if (g === 0) return '0-0 · χωρίς γκολ';
-    const minTxt = (fm === null || fm === undefined) ? '1ο λεπτό ;' : `1ο @ ${fm}′`;
-    return `${g} γκολ · ${minTxt}`;
+    return (fm === null || fm === undefined) ? '<span class="muted">;</span>' : `${fm}′`;
+  }
+
+  function markWL(res) {            // primary verdict: Win / Loss
+    if (res === 'win') return '<td class="win">W</td>';
+    if (res === 'loss') return '<td class="loss">L</td>';
+    return '<td class="pending">—</td>';
   }
 
   function renderPicks(rows) {
@@ -304,11 +315,12 @@
         <td>${early}</td>
         <td>${resultText(p)}</td>
         ${markCell(u15Result(p))}
-        ${markCell(noEarlyResult(p))}
+        <td>${minuteText(p)}</td>
+        ${markWL(noEarlyResult(p))}
       </tr>`;
     });
     document.getElementById('picks-tbody').innerHTML =
-      html || '<tr><td colspan="7" style="text-align:center;padding:40px;">Δεν υπάρχουν δεδομένα ακόμη</td></tr>';
+      html || '<tr><td colspan="8" style="text-align:center;padding:40px;">Δεν υπάρχουν δεδομένα ακόμη</td></tr>';
   }
 
   loadData();
